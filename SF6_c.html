@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SF6 対策メモ - Smart Edit</title>
+    <script src="https://cdn.tailwindcss.com/"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700&display=swap');
+        body { font-family: 'Zen Kaku Gothic New', sans-serif; background-color: #0f0f0f; color: #e0e0e0; font-size: 0.875rem; }
+        
+        /* 装飾用スタイル */
+        .hl-punish { color: #ff4d4d; font-weight: bold; } 
+        .hl-neutral { color: #4dff88; font-weight: bold; } 
+        .hl-caution { color: #ffcc00; font-weight: bold; } 
+        .text-important { color: #ff0055; font-weight: bold; text-decoration: underline; } 
+        .text-info { color: #3399ff; font-weight: bold; } 
+
+        .editable-area {
+            min-height: 100px;
+            transition: all 0.2s;
+            border: 1px solid #333;
+        }
+        .editable-area:focus {
+            background-color: #000 !important;
+            border-color: #ff4500 !important;
+            outline: none;
+        }
+        .sf-button { background: linear-gradient(to right, #e63e00, #ff6a33); }
+		/* キャラクターカードの装飾 */
+		.char-card {
+			position: relative;
+			aspect-ratio: 2 / 3; /* 縦横比を固定 */
+			overflow: hidden;
+			background-color: #1a1a1a; /* 画像がない時の背景色 */
+			transition: all 0.2s ease;
+			clip-path: polygon(0 0, 100% 0, 100% 90%, 92% 100%, 0 100%);
+			border: 1px solid #333;
+		}
+		.char-card:hover {
+			transform: scale(1.05);
+			z-index: 10;
+			border-color: #eee;
+		}
+		.char-card-bg {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			
+			/* 【ここを修正】cover から 数値(%) に変更します */
+			/* 100%が基準です。大きくするほどズームされます */
+			background-size: 150%; 
+			
+			/* ズームした際の中心位置を調整（先ほどの左寄せ設定とセットで） */
+			background-position: 50% 0%; 
+			
+			background-repeat: no-repeat;
+			filter: grayscale(20%);
+			transition: transform 0.5s ease;
+		}
+		.char-card-name {
+			position: absolute;
+			bottom: 0;
+			left: 0;
+			width: 100%;
+			padding: 30px 8px 10px;
+			background: linear-gradient(to top, rgba(0,0,0,0.9) 20%, transparent 100%);
+			font-weight: 800;
+			color: #fff;
+			text-align: center;
+			text-transform: uppercase;
+		}
+		.has-notes-indicator {
+			position: absolute;
+			top: 6px;
+			right: 6px;
+			width: 10px;
+			height: 10px;
+			background-color: #ff4500;
+			border-radius: 50%;
+			box-shadow: 0 0 8px #ff4500;
+			z-index: 2;
+		}
+		.btn-secondary { background-color: #333; color: #fff; font-size: 10px; padding: 4px 8px; border-radius: 4px; border: 1px solid #444; }
+        .btn-secondary:hover { background-color: #444; }
+    </style>
+</head>
+<body class="p-2 sm:p-4">
+
+    <div id="app" class="max-w-[1600px] mx-auto">
+		<header class="flex justify-between items-center mb-4 border-b border-gray-800 pb-2">
+            <h1 class="text-xl font-black text-white italic cursor-pointer" onclick="goBack()">SF6 COUNTER <span class="text-orange-600">LAB</span></h1>
+            <div class="flex items-center gap-2">
+                <button onclick="exportData()" class="btn-secondary">エクスポート</button>
+                <button onclick="document.getElementById('import-input').click()" class="btn-secondary">インポート</button>
+                <input type="file" id="import-input" class="hidden" accept=".json" onchange="importData(event)">
+                <div class="text-[10px] text-gray-500 bg-gray-900 px-2 py-1 rounded hidden sm:block">自動保存有効</div>
+            </div>
+        </header>
+        <div id="content-area"></div>
+    </div>
+
+<script type="module">
+        const LOCAL_STORAGE_KEY = 'sf6_smart_edit_v1';
+        let currentPage = 'selection';
+        let selectedCharacter = null;
+        let notesData = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)) || {};
+
+        const characters = [
+            { id: 'ryu', name: 'リュウ', color: 'dc2626' }, { id: 'luke', name: 'ルーク', color: 'fb923c' },
+            { id: 'jamie', name: 'ジェイミー', color: '10b981' }, { id: 'chunli', name: '春麗', color: '3b82f6' },
+            { id: 'guile', name: 'ガイル', color: 'facc15' }, { id: 'kimberly', name: 'キンバリー', color: 'ec4899' },
+            { id: 'juri', name: 'ジュリ', color: 'a855f7' }, { id: 'ken', name: 'ケン', color: 'ef4444' },
+            { id: 'blanka', name: 'ブランカ', color: '84cc16' }, { id: 'dhalsim', name: 'ダルシム', color: 'ca8a04' },
+            { id: 'ehonda', name: 'E.本田', color: 'eab308' }, { id: 'deejay', name: 'ディージェイ', color: '22c55e' },
+            { id: 'manon', name: 'マノン', color: '6366f1' }, { id: 'marisa', name: 'マリーザ', color: 'f97316' },
+            { id: 'jp', name: 'JP', color: '78716c' }, { id: 'zangief', name: 'ザンギエフ', color: 'ef4444' },
+            { id: 'lily', name: 'リリー', color: '06b6d4' }, { id: 'cammy', name: 'キャミィ', color: '14b8a6' },
+            { id: 'rashid', name: 'ラシード', color: '059669' }, { id: 'aki', name: 'A.K.I.', color: '5b21b6' },
+            { id: 'ed', name: 'エド', color: 'c026d3' }, { id: 'akuma', name: '豪鬼', color: 'b91c1c' },
+            { id: 'terry', name: 'テリー', color: 'ff8c00' }, { id: 'mai', name: '舞', color: 'b71c1c' },
+            { id: 'vega', name: 'ベガ', color: 'A020F0' }, { id: 'elena', name: 'エレナ', color: '82a40f' },
+			{ id: 'sagat', name: 'サガット', color: '1e3a8a' }, { id: 'cviper', name: 'ヴァイパー', color: '8b0000' },
+			{ id: 'alex', name: 'アレックス', color: '4d7c0f' }, { id: 'ingrid', name: 'イングリッド', color: 'f8fafc' }
+        ];
+
+        // --- ユーティリティ ---
+        function save() { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(notesData)); }
+
+        function formatDisplay(text) {
+            if (!text) return '<span class="text-gray-600 italic">クリックして入力...</span>';
+            return text
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                .replace(/!!(.+?)!!/g, '<span class="text-important">$1</span>')
+                .replace(/\(\((.+?)\)\)/g, '<span class="text-info">$1</span>')
+                .split('\n').map(line => {
+                    if (line.startsWith('【確定反撃】')) return `<span class="hl-punish">${line}</span>`;
+                    if (line.startsWith('【立ち回り】')) return `<span class="hl-neutral">${line}</span>`;
+                    if (line.startsWith('【注意技】')) return `<span class="hl-caution">${line}</span>`;
+                    return line;
+                }).join('<br>');
+        }
+
+        const getDisplayUrl = (url) => {
+            if (!url) return null;
+            if (url.includes('gyazo.com') && !url.match(/\.(png|jpg|jpeg|gif|mp4)$/)) {
+                return url.replace('gyazo.com/', 'i.gyazo.com/') + '.mp4';
+            }
+            return url;
+        };
+
+        // --- 描画関数 ---
+        window.renderSelectionScreen = function() {
+            const container = document.getElementById('content-area');
+            if (!container) return;
+            container.innerHTML = `
+                <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-3">
+                    ${characters.map(char => {
+                        const hasNotes = notesData[char.id] && notesData[char.id].some(n => n.text);
+                        const imgUrl = `img/chars/${char.id}.png`; 
+                        return `
+                            <div class="char-card cursor-pointer" onclick="selectChar('${char.id}')" 
+                                 style="border-bottom: 4px solid #${char.color}">
+                                <div class="char-card-bg" style="background-image: url('${imgUrl}'); background-color: #222;"></div>
+                                ${hasNotes ? '<div class="has-notes-indicator"></div>' : ''}
+                                <div class="char-card-name text-[10px] sm:text-xs">${char.name}</div>
+                            </div>`;
+                    }).join('')}
+                </div>`;
+        }
+
+        window.renderNotesScreen = function() {
+            const charId = selectedCharacter.id;
+            if (!notesData[charId]) notesData[charId] = [{ text: '', gifUrl: '', showGif: false }];
+
+            document.getElementById('content-area').innerHTML = `
+                <div class="flex items-center gap-4 mb-4">
+                    <button onclick="goBack()" class="bg-zinc-800 px-3 py-1 rounded text-xs font-bold">← 一覧</button>
+                    <h2 class="text-lg font-bold" style="color:#${selectedCharacter.color}">${selectedCharacter.name}</h2>
+                    <button onclick="addTactic()" class="sf-button text-white text-xs px-4 py-1 rounded ml-auto">+ 項目追加</button>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="tactic-grid">
+                    ${notesData[charId].map((n, i) => renderTacticCard(n, i)).join('')}
+                </div>`;
+            applyInitialFormat();
+        }
+
+        function renderTacticCard(note, index) {
+            const mediaUrl = getDisplayUrl(note.gifUrl);
+            const isVideo = mediaUrl && mediaUrl.endsWith('.mp4');
+
+            return `
+                <div class="bg-zinc-900 rounded-lg p-2 flex flex-col gap-2 relative border border-zinc-800">
+                    <div class="flex justify-between items-center opacity-60">
+                        <div class="flex gap-1">
+                            <button onclick="applyTag(${index}, '【確定反撃】')" class="text-[9px] bg-red-900/30 px-1 rounded">確反</button>
+                            <button onclick="applyTag(${index}, '【立ち回り】')" class="text-[9px] bg-green-900/30 px-1 rounded">立回</button>
+                            <button onclick="applyTag(${index}, '【注意技】')" class="text-[9px] bg-yellow-900/30 px-1 rounded">注意</button>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="toggleGif(${index})" class="text-[9px] underline">${note.showGif ? '閉じる' : 'GIF設定'}</button>
+                            <button onclick="deleteTactic(${index})" class="text-[9px] hover:text-red-500">✕</button>
+                        </div>
+                    </div>
+                    ${mediaUrl ? `
+                        <div class="w-full rounded overflow-hidden bg-black aspect-video flex items-center justify-center">
+                            ${isVideo ? `<video src="${mediaUrl}" autoplay loop muted playsinline class="w-full h-full object-contain"></video>` 
+                                      : `<img src="${mediaUrl}" class="w-full h-full object-contain">`}
+                        </div>` : ''}
+                    ${note.showGif ? `
+                        <input type="text" value="${note.gifUrl || ''}" onchange="updateGif(${index}, this.value)" 
+                               placeholder="Gyazo URL" class="w-full bg-black p-1 text-[10px] border border-zinc-700 rounded mb-1 outline-none">` : ''}
+                    <div id="edit-${index}" contenteditable="true" 
+                         class="editable-area w-full bg-[#151515] p-2 text-xs rounded leading-relaxed whitespace-pre-wrap"
+                         onfocus="onEditFocus(${index})" onblur="onEditBlur(${index}, this)">${note.text || ""}</div>
+                </div>`;
+        }
+
+        // --- グローバル関数 (windowに登録) ---
+        window.selectChar = (id) => {
+            selectedCharacter = characters.find(c => c.id === id);
+            currentPage = 'notes';
+            renderApp();
+        };
+
+        window.goBack = () => { currentPage = 'selection'; renderApp(); };
+
+        window.addTactic = () => {
+            notesData[selectedCharacter.id].push({ text: '', gifUrl: '', showGif: false });
+            renderNotesScreen();
+        };
+
+        window.deleteTactic = (idx) => {
+            if(confirm('削除しますか？')) {
+                notesData[selectedCharacter.id].splice(idx, 1);
+                renderNotesScreen();
+                save();
+            }
+        };
+
+        window.toggleGif = (idx) => {
+            notesData[selectedCharacter.id][idx].showGif = !notesData[selectedCharacter.id][idx].showGif;
+            renderNotesScreen();
+        };
+
+        window.updateGif = (idx, val) => {
+            notesData[selectedCharacter.id][idx].gifUrl = val;
+            save();
+            renderNotesScreen();
+        };
+
+        window.applyTag = (idx, tag) => {
+            const data = notesData[selectedCharacter.id][idx];
+            data.text = tag + (data.text ? '\n' + data.text : '');
+            save();
+            renderNotesScreen();
+        };
+
+        window.onEditFocus = (idx) => {
+            const el = document.getElementById(`edit-${idx}`);
+            el.innerHTML = notesData[selectedCharacter.id][idx].text;
+        };
+
+        window.onEditBlur = (idx, el) => {
+            const plainText = el.innerText;
+            notesData[selectedCharacter.id][idx].text = plainText;
+            el.innerHTML = formatDisplay(plainText);
+            save();
+        };
+
+        window.exportData = () => {
+            const dataStr = JSON.stringify(notesData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sf6_notes.json`;
+            a.click();
+        };
+
+        window.importData = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    notesData = JSON.parse(e.target.result);
+                    save();
+                    location.reload();
+                } catch (err) { alert('不正なファイルです'); }
+            };
+            reader.readAsText(file);
+        };
+
+        function applyInitialFormat() {
+            const items = notesData[selectedCharacter.id];
+            if (!items) return;
+            items.forEach((n, i) => {
+                const el = document.getElementById(`edit-${i}`);
+                if (el) el.innerHTML = formatDisplay(n.text);
+            });
+        }
+
+        function renderApp() {
+            if (currentPage === 'selection') window.renderSelectionScreen();
+            else window.renderNotesScreen();
+        }
+
+        // 初期起動
+        renderApp();
+    </script>
+</body>
+</html>
